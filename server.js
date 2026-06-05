@@ -2,6 +2,8 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
+loadDotEnv(path.join(__dirname, ".env"));
+
 const PORT = Number(process.env.PORT || 3000);
 const STEAM_API_KEY = process.env.STEAM_API_KEY || "";
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -15,6 +17,34 @@ const MIME_TYPES = {
   ".png": "image/png",
   ".ico": "image/x-icon"
 };
+
+function loadDotEnv(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+
+  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const separator = trimmed.indexOf("=");
+    if (separator <= 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, separator).trim();
+    let value = trimmed.slice(separator + 1).trim();
+    if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
 
 function sendJson(res, status, payload) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -56,8 +86,8 @@ function normalizeSteamInput(rawInput) {
   return null;
 }
 
-async function callSteamApi(method, params) {
-  const url = new URL(`https://api.steampowered.com/${method}/v0001/`);
+async function callSteamApi(method, params, version = "v0001") {
+  const url = new URL(`https://api.steampowered.com/${method}/${version}/`);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
@@ -82,7 +112,8 @@ async function resolveSteamId(input) {
 
   if (!parsed) {
     const error = new Error("Enter a Steam profile URL, custom URL, or SteamID64.");
-    error.publicMessage = "Enter a valid Steam profile URL, custom URL, or SteamID64.";
+    error.publicMessage = "Could not resolve this Steam profile. Check the URL or Steam ID and try again.";
+    error.code = "invalid_profile";
     error.status = 400;
     throw error;
   }
@@ -98,7 +129,8 @@ async function resolveSteamId(input) {
 
   if (data?.response?.success !== 1 || !data.response.steamid) {
     const error = new Error(`Could not resolve vanity URL "${parsed.value}".`);
-    error.publicMessage = "This Steam profile could not be found.";
+    error.publicMessage = "Could not resolve this Steam profile. Check the URL or Steam ID and try again.";
+    error.code = "vanity_unresolved";
     error.status = 404;
     throw error;
   }
@@ -111,29 +143,71 @@ function normalizeGame(game) {
     appid: game.appid,
     name: game.name || `App ${game.appid}`,
     img_icon_url: game.img_icon_url || "",
-    playtime_forever: game.playtime_forever || 0
+    playtime_forever: game.playtime_forever || 0,
+    price: null,
+    rating: null,
+    review_count: null
   };
+}
+
+function normalizeProfile(player, steamid) {
+  if (!player) {
+    return {
+      steamid,
+      personaname: null,
+      avatar: "",
+      avatarmedium: "",
+      avatarfull: "",
+      profileurl: `https://steamcommunity.com/profiles/${steamid}`
+    };
+  }
+
+  return {
+    steamid,
+    personaname: player.personaname || null,
+    avatar: player.avatar || "",
+    avatarmedium: player.avatarmedium || "",
+    avatarfull: player.avatarfull || "",
+    profileurl: player.profileurl || `https://steamcommunity.com/profiles/${steamid}`
+  };
+}
+
+async function fetchProfile(steamid) {
+  try {
+    const data = await callSteamApi("ISteamUser/GetPlayerSummaries", {
+      key: STEAM_API_KEY,
+      steamids: steamid
+    }, "v0002");
+    return normalizeProfile(data?.response?.players?.[0], steamid);
+  } catch {
+    return normalizeProfile(null, steamid);
+  }
 }
 
 async function fetchLibrary(input) {
   const steamid = await resolveSteamId(input);
-  const data = await callSteamApi("IPlayerService/GetOwnedGames", {
-    key: STEAM_API_KEY,
-    steamid,
-    include_appinfo: 1,
-    include_played_free_games: 1
-  });
+  const [data, profile] = await Promise.all([
+    callSteamApi("IPlayerService/GetOwnedGames", {
+      key: STEAM_API_KEY,
+      steamid,
+      include_appinfo: 1,
+      include_played_free_games: 1
+    }),
+    fetchProfile(steamid)
+  ]);
 
   const games = data?.response?.games;
   if (!Array.isArray(games)) {
     const error = new Error(`Game library unavailable for ${steamid}.`);
-    error.publicMessage = "This user's game library is private or unavailable.";
+    error.publicMessage = "This profile may be private or its game details are hidden.";
+    error.code = "private_library";
     error.status = 403;
     throw error;
   }
 
   return {
     steamid,
+    profile,
     game_count: data.response.game_count || games.length,
     games: games.map(normalizeGame).sort((a, b) => a.name.localeCompare(b.name))
   };
@@ -172,7 +246,7 @@ async function handleCompare(req, res) {
       sendJson(res, 200, { player1, player2 });
     } catch (error) {
       const message = error.publicMessage || "Steam API error. Try again in a minute.";
-      sendError(res, error.status || 502, "steam_error", message);
+      sendError(res, error.status || 502, error.code || "steam_request_failed", message);
     }
   });
 }
@@ -202,6 +276,14 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/api/health") {
+    sendJson(res, 200, {
+      ok: true,
+      steamApiKeyConfigured: Boolean(STEAM_API_KEY)
+    });
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/api/compare") {
     handleCompare(req, res);
     return;
@@ -217,5 +299,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Steam Family Comparison Prototype running at http://localhost:${PORT}`);
+  console.log(`Steam Family Comparison Prototype running on port ${PORT}`);
+  console.log(`Steam API key configured: ${STEAM_API_KEY ? "yes" : "no"}`);
 });

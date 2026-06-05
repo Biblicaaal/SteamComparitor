@@ -111,11 +111,12 @@ function ConvertTo-QueryString {
 function Invoke-SteamApi {
   param(
     [string]$Method,
-    [hashtable]$Params
+    [hashtable]$Params,
+    [string]$Version = "v0001"
   )
 
   $query = ConvertTo-QueryString $Params
-  $url = "https://api.steampowered.com/$Method/v0001/?$query"
+  $url = "https://api.steampowered.com/$Method/$Version/?$query"
   Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 20
 }
 
@@ -124,7 +125,9 @@ function Resolve-SteamId {
 
   $parsed = Get-NormalizedSteamInput $InputValue
   if ($null -eq $parsed) {
-    throw [System.ArgumentException]::new("Enter a valid Steam profile URL, custom URL, or SteamID64.")
+    $errorRecord = [System.ArgumentException]::new("Could not resolve this Steam profile. Check the URL or Steam ID and try again.")
+    $errorRecord.Data["code"] = "invalid_profile"
+    throw $errorRecord
   }
 
   if ($parsed.type -eq "steamid") {
@@ -137,7 +140,9 @@ function Resolve-SteamId {
   }
 
   if ($data.response.success -ne 1 -or -not $data.response.steamid) {
-    throw [System.Management.Automation.ItemNotFoundException]::new("This Steam profile could not be found.")
+    $errorRecord = [System.Management.Automation.ItemNotFoundException]::new("Could not resolve this Steam profile. Check the URL or Steam ID and try again.")
+    $errorRecord.Data["code"] = "vanity_unresolved"
+    throw $errorRecord
   }
 
   return $data.response.steamid
@@ -151,6 +156,47 @@ function Get-NormalizedGame {
     name = if ($Game.name) { $Game.name } else { "App $($Game.appid)" }
     img_icon_url = if ($Game.img_icon_url) { $Game.img_icon_url } else { "" }
     playtime_forever = if ($Game.playtime_forever) { $Game.playtime_forever } else { 0 }
+    price = $null
+    rating = $null
+    review_count = $null
+  }
+}
+
+function Get-FallbackProfile {
+  param([string]$SteamId)
+
+  @{
+    steamid = $SteamId
+    personaname = $null
+    avatar = ""
+    avatarmedium = ""
+    avatarfull = ""
+    profileurl = "https://steamcommunity.com/profiles/$SteamId"
+  }
+}
+
+function Get-SteamProfile {
+  param([string]$SteamId)
+
+  try {
+    $data = Invoke-SteamApi "ISteamUser/GetPlayerSummaries" @{
+      key = $SteamApiKey
+      steamids = $SteamId
+    } "v0002"
+    $player = @($data.response.players)[0]
+    if ($null -eq $player) {
+      return Get-FallbackProfile $SteamId
+    }
+    return @{
+      steamid = $SteamId
+      personaname = if ($player.personaname) { $player.personaname } else { $null }
+      avatar = if ($player.avatar) { $player.avatar } else { "" }
+      avatarmedium = if ($player.avatarmedium) { $player.avatarmedium } else { "" }
+      avatarfull = if ($player.avatarfull) { $player.avatarfull } else { "" }
+      profileurl = if ($player.profileurl) { $player.profileurl } else { "https://steamcommunity.com/profiles/$SteamId" }
+    }
+  } catch {
+    return Get-FallbackProfile $SteamId
   }
 }
 
@@ -158,6 +204,7 @@ function Get-SteamLibrary {
   param([string]$InputValue)
 
   $steamId = Resolve-SteamId $InputValue
+  $profile = Get-SteamProfile $steamId
   $data = Invoke-SteamApi "IPlayerService/GetOwnedGames" @{
     key = $SteamApiKey
     steamid = $steamId
@@ -166,12 +213,15 @@ function Get-SteamLibrary {
   }
 
   if ($null -eq $data.response.games) {
-    throw [System.UnauthorizedAccessException]::new("This user's game library is private or unavailable.")
+    $errorRecord = [System.UnauthorizedAccessException]::new("This profile may be private or its game details are hidden.")
+    $errorRecord.Data["code"] = "private_library"
+    throw $errorRecord
   }
 
   $games = @($data.response.games | ForEach-Object { Get-NormalizedGame $_ } | Sort-Object name)
   @{
     steamid = $steamId
+    profile = $profile
     game_count = if ($data.response.game_count) { $data.response.game_count } else { $games.Count }
     games = $games
   }
@@ -241,13 +291,16 @@ function Handle-Compare {
       player2 = Get-SteamLibrary $player2
     }
   } catch [System.ArgumentException] {
-    Send-ErrorJson $Stream 400 "steam_error" $_.Exception.Message
+    $code = if ($_.Exception.Data["code"]) { $_.Exception.Data["code"] } else { "invalid_profile" }
+    Send-ErrorJson $Stream 400 $code $_.Exception.Message
   } catch [System.Management.Automation.ItemNotFoundException] {
-    Send-ErrorJson $Stream 404 "steam_error" $_.Exception.Message
+    $code = if ($_.Exception.Data["code"]) { $_.Exception.Data["code"] } else { "vanity_unresolved" }
+    Send-ErrorJson $Stream 404 $code $_.Exception.Message
   } catch [System.UnauthorizedAccessException] {
-    Send-ErrorJson $Stream 403 "steam_error" $_.Exception.Message
+    $code = if ($_.Exception.Data["code"]) { $_.Exception.Data["code"] } else { "private_library" }
+    Send-ErrorJson $Stream 403 $code $_.Exception.Message
   } catch {
-    Send-ErrorJson $Stream 502 "steam_error" "Steam API error. Try again in a minute."
+    Send-ErrorJson $Stream 502 "steam_request_failed" "Steam API error. Try again in a minute."
   }
 }
 
@@ -305,7 +358,12 @@ try {
         continue
       }
 
-      if ($request.method -eq "POST" -and $request.path -eq "/api/compare") {
+      if ($request.method -eq "GET" -and $request.path -eq "/api/health") {
+        Send-Json $stream 200 @{
+          ok = $true
+          steamApiKeyConfigured = [bool]$SteamApiKey
+        }
+      } elseif ($request.method -eq "POST" -and $request.path -eq "/api/compare") {
         Handle-Compare $stream $request.body
       } elseif ($request.method -eq "GET") {
         Send-StaticFile $stream $request.path

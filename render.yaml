@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: steam-family-comparator
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: STEAM_API_KEY
+        sync: false

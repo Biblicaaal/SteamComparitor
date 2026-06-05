@@ -10,37 +10,52 @@
     <main class="app-shell">
       <section class="intro">
         <div>
-          <p class="eyebrow">Steam Family Comparison Prototype</p>
-          <h1>See what each player would gain.</h1>
+          <p class="eyebrow" data-i18n="appEyebrow">Steam Family Comparison Prototype</p>
+          <h1 data-i18n="appTitle">See what each player would gain.</h1>
         </div>
-        <p class="notice">Some games may not be eligible for Steam Family Sharing. This prototype compares ownership only.</p>
+        <div class="intro-side">
+          <label class="language-control">
+            <span data-i18n="languageLabel">Language</span>
+            <select id="language-select" aria-label="Language">
+              <option value="en">English</option>
+              <option value="es">Español</option>
+            </select>
+          </label>
+          <p class="notice" data-i18n="notice">Some games may not be eligible for Steam Family Sharing. This prototype compares ownership only.</p>
+        </div>
       </section>
 
       <section class="compare-panel" aria-labelledby="compare-title">
-        <h2 id="compare-title">Compare Libraries</h2>
+        <h2 id="compare-title" data-i18n="compareTitle">Compare Libraries</h2>
         <form id="compare-form" class="compare-form">
           <label>
-            <span>Player 1 Steam Profile</span>
-            <input id="player1" name="player1" type="text" autocomplete="off" placeholder="Steam profile URL, custom URL, or SteamID64" required>
+            <span data-i18n="player1Input">Player 1 Steam Profile</span>
+            <input id="player1" name="player1" type="text" autocomplete="off" data-i18n-placeholder="profilePlaceholder" placeholder="Steam profile URL, custom URL, or SteamID64" required>
           </label>
           <label>
-            <span>Player 2 Steam Profile</span>
-            <input id="player2" name="player2" type="text" autocomplete="off" placeholder="Steam profile URL, custom URL, or SteamID64" required>
+            <span data-i18n="player2Input">Player 2 Steam Profile</span>
+            <input id="player2" name="player2" type="text" autocomplete="off" data-i18n-placeholder="profilePlaceholder" placeholder="Steam profile URL, custom URL, or SteamID64" required>
           </label>
-          <button id="compare-button" type="submit">Compare Libraries</button>
+          <button id="compare-button" type="submit" data-i18n="compareButton">Compare Libraries</button>
         </form>
       </section>
 
       <section id="status" class="status hidden" role="status" aria-live="polite"></section>
 
       <section id="results" class="results hidden" aria-live="polite">
+        <div id="player-profiles" class="player-profiles"></div>
+        <section id="winner-card" class="winner-card"></section>
         <div id="summary" class="summary-grid"></div>
+        <div class="result-actions">
+          <button id="share-summary" type="button" data-i18n="shareButton">Share Summary</button>
+          <span id="share-status" class="share-status" aria-live="polite"></span>
+        </div>
 
         <div class="tabs" role="tablist" aria-label="Comparison lists">
-          <button class="tab active" type="button" data-list="both">Both own</button>
-          <button class="tab" type="button" data-list="only1">Only Player 1 owns</button>
-          <button class="tab" type="button" data-list="only2">Only Player 2 owns</button>
-          <button class="tab" type="button" data-list="combined">Combined library</button>
+          <button class="tab active" type="button" data-list="both" data-i18n="tabDuplicates">Duplicates</button>
+          <button class="tab" type="button" data-list="only1" data-i18n="tabPlayer2Gains">Player 2 gains</button>
+          <button class="tab" type="button" data-list="only2" data-i18n="tabPlayer1Gains">Player 1 gains</button>
+          <button class="tab" type="button" data-list="combined" data-i18n="tabFullFamily">Full Family Library</button>
         </div>
 
         <section id="list-panel" class="list-panel"></section>
