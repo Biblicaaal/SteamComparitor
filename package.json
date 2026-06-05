@@ -1,0 +1,12 @@
+{
+  "name": "steam-family-comparison-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Barebones Steam Family library comparison prototype.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

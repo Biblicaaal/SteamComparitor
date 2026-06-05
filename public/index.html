@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Steam Family Comparison Prototype</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="intro">
+        <div>
+          <p class="eyebrow">Steam Family Comparison Prototype</p>
+          <h1>See what each player would gain.</h1>
+        </div>
+        <p class="notice">Some games may not be eligible for Steam Family Sharing. This prototype compares ownership only.</p>
+      </section>
+
+      <section class="compare-panel" aria-labelledby="compare-title">
+        <h2 id="compare-title">Compare Libraries</h2>
+        <form id="compare-form" class="compare-form">
+          <label>
+            <span>Player 1 Steam Profile</span>
+            <input id="player1" name="player1" type="text" autocomplete="off" placeholder="Steam profile URL, custom URL, or SteamID64" required>
+          </label>
+          <label>
+            <span>Player 2 Steam Profile</span>
+            <input id="player2" name="player2" type="text" autocomplete="off" placeholder="Steam profile URL, custom URL, or SteamID64" required>
+          </label>
+          <button id="compare-button" type="submit">Compare Libraries</button>
+        </form>
+      </section>
+
+      <section id="status" class="status hidden" role="status" aria-live="polite"></section>
+
+      <section id="results" class="results hidden" aria-live="polite">
+        <div id="summary" class="summary-grid"></div>
+
+        <div class="tabs" role="tablist" aria-label="Comparison lists">
+          <button class="tab active" type="button" data-list="both">Both own</button>
+          <button class="tab" type="button" data-list="only1">Only Player 1 owns</button>
+          <button class="tab" type="button" data-list="only2">Only Player 2 owns</button>
+          <button class="tab" type="button" data-list="combined">Combined library</button>
+        </div>
+
+        <section id="list-panel" class="list-panel"></section>
+      </section>
+    </main>
+
+    <template id="summary-card-template">
+      <article class="summary-card">
+        <p></p>
+        <strong></strong>
+      </article>
+    </template>
+
+    <template id="game-row-template">
+      <article class="game-row">
+        <img alt="" loading="lazy">
+        <div>
+          <strong></strong>
+          <span></span>
+        </div>
+      </article>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
